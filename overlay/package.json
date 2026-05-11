@@ -1,0 +1,17 @@
+{
+  "name": "overlay",
+  "version": "1.0.0",
+  "description": "Floating liquid-glass Claude overlay with Apple Calendar/Reminders integration",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:helper": "swiftc -O -o ekhelper ekhelper.swift && codesign --sign - --force ekhelper",
+    "postinstall": "npm run build:helper || true"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0"
+  }
+}

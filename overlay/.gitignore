@@ -1,0 +1,8 @@
+node_modules/
+.env
+.DS_Store
+dist/
+out/
+*.log
+ekhelper
+memory.json.bak

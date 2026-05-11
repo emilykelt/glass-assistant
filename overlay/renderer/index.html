@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src https://api.anthropic.com" />
+    <title>Glass</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="shell">
+      <div id="dragHandle" class="drag">
+        <div class="grip"></div>
+      </div>
+
+      <div id="shortcutsDot" class="shortcuts-dot" title="Shortcuts">
+        <div class="shortcuts-popover">
+          <span><kbd>⌘⇧Space</kbd> toggle</span>
+          <span><kbd>⌘⇧I</kbd> capture</span>
+          <span><kbd>⌘V</kbd> paste image</span>
+          <span><kbd>⌘K</kbd> clear</span>
+        </div>
+      </div>
+
+      <div id="messages" class="messages"></div>
+
+      <div id="composer" class="composer">
+        <div id="attachStrip" class="attach-strip hidden">
+          <div id="attachThumbWrap" class="thumb-wrap">
+            <img id="attachThumb" alt="screen capture" />
+            <button id="attachRemove" class="thumb-x" title="Remove">×</button>
+          </div>
+        </div>
+        <div class="pill">
+          <textarea id="input" rows="1" autofocus></textarea>
+        </div>
+      </div>
+
+
+      <div id="resizer" class="resizer" aria-hidden="true"></div>
+    </div>
+
+    <div id="selectPopup" class="select-popup">
+      <div id="selectPopupBody" class="select-popup-body"></div>
+    </div>
+
+    <div id="permissions" class="permissions hidden">
+      <div class="permissions-card">
+        <h2>Grant access</h2>
+        <p>
+          Glass needs permission to read and write your <strong>Calendar</strong> and
+          <strong>Reminders</strong>. Open System Settings → Privacy &amp; Security and
+          enable access for <em>osascript</em> (or your terminal/Electron) under
+          <em>Calendars</em> and <em>Reminders</em>.
+        </p>
+        <div class="permissions-buttons">
+          <button id="openCal" class="ghost">Open Calendar Privacy</button>
+          <button id="openRem" class="ghost">Open Reminders Privacy</button>
+        </div>
+        <button id="dismissPerms" class="primary">Got it</button>
+      </div>
+    </div>
+
+    <script src="app.js" type="module"></script>
+  </body>
+</html>
