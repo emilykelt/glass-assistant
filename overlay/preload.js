@@ -25,3 +25,31 @@ contextBridge.exposeInMainWorld('memory', {
   append: (path, content) => ipcRenderer.invoke('memory:append', { path, content }),
   delete: (path) => ipcRenderer.invoke('memory:delete', path),
 });
+
+contextBridge.exposeInMainWorld('mail', {
+  get_unread: (limit) => ipcRenderer.invoke('mail:get_unread', limit),
+  search: (args) => ipcRenderer.invoke('mail:search', args),
+  create_draft: (args) => ipcRenderer.invoke('mail:create_draft', args),
+  mark_read: (args) => ipcRenderer.invoke('mail:mark_read', args),
+});
+
+contextBridge.exposeInMainWorld('anki', {
+  list_decks: () => ipcRenderer.invoke('anki:list_decks'),
+  add_card: (args) => ipcRenderer.invoke('anki:add_card', args),
+  search_cards: (args) => ipcRenderer.invoke('anki:search_cards', args),
+});
+
+contextBridge.exposeInMainWorld('weather', {
+  get: (location) => ipcRenderer.invoke('weather:get', { location }),
+});
+
+contextBridge.exposeInMainWorld('obsidian', {
+  list_vault: (args) => ipcRenderer.invoke('obsidian:list_vault', args),
+  list_dir: (args) => ipcRenderer.invoke('obsidian:list_dir', args),
+  get_file: (args) => ipcRenderer.invoke('obsidian:get_file', args),
+  search: (args) => ipcRenderer.invoke('obsidian:search', args),
+  patch: (args) => ipcRenderer.invoke('obsidian:patch', args),
+  append: (args) => ipcRenderer.invoke('obsidian:append', args),
+  delete: (args) => ipcRenderer.invoke('obsidian:delete', args),
+  list_tools: () => ipcRenderer.invoke('obsidian:list_tools'),
+});

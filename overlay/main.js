@@ -531,3 +531,344 @@ ipcMain.handle('apple:create_reminder', async (_e, args) => {
   cacheInvalidate('reminders');
   return { ok: true };
 });
+
+// --- Mail (AppleScript) ---------------------------------------------------
+
+function buildGetUnreadMail(limit) {
+  const n = Math.max(1, Math.min(parseInt(limit, 10) || 10, 50));
+  return `set fs to "${FIELD_SEP}"
+set rs to "${RECORD_SEP}"
+set output to ""
+set theLimit to ${n}
+set i to 0
+tell application "Mail"
+  set unreadMsgs to (messages of inbox whose read status is false)
+  repeat with msg in unreadMsgs
+    if i ≥ theLimit then exit repeat
+    try
+      set s to subject of msg
+      set sndr to sender of msg
+      set dt to ((date received of msg) as «class isot») as string
+      set mid to ""
+      try
+        set mid to message id of msg
+      end try
+      set snippet to ""
+      try
+        set rawCnt to content of msg as string
+        if (count of rawCnt) > 240 then
+          set snippet to text 1 thru 240 of rawCnt
+        else
+          set snippet to rawCnt
+        end if
+      end try
+      set output to output & s & fs & sndr & fs & dt & fs & mid & fs & snippet & rs
+      set i to i + 1
+    end try
+  end repeat
+end tell
+return output`;
+}
+
+function buildSearchMail(query, limit) {
+  const n = Math.max(1, Math.min(parseInt(limit, 10) || 10, 50));
+  return `set fs to "${FIELD_SEP}"
+set rs to "${RECORD_SEP}"
+set output to ""
+set theQuery to "${escapeAS(query)}"
+set theLimit to ${n}
+set i to 0
+tell application "Mail"
+  set matches to (messages of inbox whose (subject contains theQuery) or (sender contains theQuery))
+  repeat with msg in matches
+    if i ≥ theLimit then exit repeat
+    try
+      set s to subject of msg
+      set sndr to sender of msg
+      set dt to ((date received of msg) as «class isot») as string
+      set output to output & s & fs & sndr & fs & dt & rs
+      set i to i + 1
+    end try
+  end repeat
+end tell
+return output`;
+}
+
+function buildMarkMailRead(messageId) {
+  return `tell application "Mail"
+  set msgs to (messages of inbox whose message id is "${escapeAS(messageId)}")
+  set n to count of msgs
+  if n = 0 then
+    return "0"
+  end if
+  repeat with msg in msgs
+    set read status of msg to true
+  end repeat
+  return (n as string)
+end tell`;
+}
+
+function buildCreateMailDraft({ to, subject, body }) {
+  if (!to || !subject) throw new Error('create_mail_draft requires to and subject');
+  const recipients = Array.isArray(to) ? to : String(to).split(/[,;]\s*/).filter(Boolean);
+  const recipientLines = recipients
+    .map((addr) => `    make new to recipient at end of to recipients with properties {address:"${escapeAS(addr)}"}`)
+    .join('\n');
+  return `tell application "Mail"
+  set newMsg to make new outgoing message with properties {subject:"${escapeAS(subject)}", content:"${escapeAS(body || '')}", visible:true}
+  tell newMsg
+${recipientLines}
+  end tell
+  activate
+end tell
+return "ok"`;
+}
+
+function parseMail(stdout) {
+  return stdout
+    .split(RECORD_SEP)
+    .map((r) => r.trim())
+    .filter(Boolean)
+    .map((r) => {
+      const [subject, sender, dateReceived, messageId, snippet] = r.split(FIELD_SEP);
+      return {
+        subject,
+        sender,
+        dateReceived,
+        messageId: messageId || '',
+        snippet: (snippet || '').replace(/\s+/g, ' ').trim().slice(0, 240),
+      };
+    });
+}
+
+function parseMailSearch(stdout) {
+  return stdout
+    .split(RECORD_SEP)
+    .map((r) => r.trim())
+    .filter(Boolean)
+    .map((r) => {
+      const [subject, sender, dateReceived] = r.split(FIELD_SEP);
+      return { subject, sender, dateReceived };
+    });
+}
+
+ipcMain.handle('mail:get_unread', async (_e, limit) => {
+  return cachedRead(`mail:unread:${parseInt(limit, 10) || 10}`, async () => {
+    const out = await runAppleScript(buildGetUnreadMail(limit));
+    return parseMail(out);
+  });
+});
+
+ipcMain.handle('mail:search', async (_e, args) => {
+  const { query, limit } = args || {};
+  if (!query) throw new Error('search_mail requires query');
+  const out = await runAppleScript(buildSearchMail(query, limit));
+  return parseMailSearch(out);
+});
+
+ipcMain.handle('mail:create_draft', async (_e, args) => {
+  await runAppleScript(buildCreateMailDraft(args || {}));
+  return { ok: true };
+});
+
+ipcMain.handle('mail:mark_read', async (_e, args) => {
+  const { messageId } = args || {};
+  if (!messageId || typeof messageId !== 'string') {
+    throw new Error('mark_mail_read requires messageId');
+  }
+  const out = await runAppleScript(buildMarkMailRead(messageId));
+  const matched = parseInt(String(out).trim(), 10) || 0;
+  cacheInvalidate('mail:');
+  return { matched };
+});
+
+// --- Anki (via AnkiConnect on localhost:8765) -----------------------------
+
+const ANKI_URL = 'http://127.0.0.1:8765';
+
+async function ankiInvoke(action, params = {}) {
+  let resp;
+  try {
+    resp = await fetch(ANKI_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, version: 6, params }),
+    });
+  } catch (err) {
+    throw new Error(
+      `AnkiConnect unreachable — open Anki and install the AnkiConnect add-on (code 2055492159). (${err.message || err})`
+    );
+  }
+  if (!resp.ok) throw new Error(`AnkiConnect HTTP ${resp.status}`);
+  const data = await resp.json();
+  if (data.error) throw new Error(`AnkiConnect: ${data.error}`);
+  return data.result;
+}
+
+ipcMain.handle('anki:list_decks', async () => {
+  return await ankiInvoke('deckNames');
+});
+
+ipcMain.handle('anki:add_card', async (_e, args) => {
+  const { deck, front, back, tags } = args || {};
+  if (!deck || !front || !back) throw new Error('anki_add_card requires deck, front, back');
+  const id = await ankiInvoke('addNote', {
+    note: {
+      deckName: deck,
+      modelName: 'Basic',
+      fields: { Front: String(front), Back: String(back) },
+      tags: Array.isArray(tags) ? tags : [],
+      options: { allowDuplicate: false },
+    },
+  });
+  return { id };
+});
+
+ipcMain.handle('anki:search_cards', async (_e, args) => {
+  const { query, limit } = args || {};
+  if (!query) throw new Error('anki_search_cards requires query');
+  const noteIds = await ankiInvoke('findNotes', { query });
+  if (!noteIds.length) return [];
+  const slice = noteIds.slice(0, Math.max(1, Math.min(parseInt(limit, 10) || 25, 100)));
+  const info = await ankiInvoke('notesInfo', { notes: slice });
+  return info.map((n) => ({
+    id: n.noteId,
+    model: n.modelName,
+    fields: Object.fromEntries(
+      Object.entries(n.fields || {}).map(([k, v]) => [k, (v && v.value) || ''])
+    ),
+    tags: n.tags || [],
+  }));
+});
+
+// --- Weather (Open-Meteo, no API key) -------------------------------------
+
+async function fetchWeather(location) {
+  const q = String(location || '').trim();
+  if (!q) throw new Error('location required');
+  const geoUrl =
+    'https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&format=json&name=' +
+    encodeURIComponent(q);
+  const geoResp = await fetch(geoUrl);
+  if (!geoResp.ok) throw new Error(`geocoding HTTP ${geoResp.status}`);
+  const geo = await geoResp.json();
+  if (!geo.results || !geo.results.length) {
+    throw new Error(`no location found for "${q}"`);
+  }
+  const place = geo.results[0];
+  const { latitude, longitude, name, country_code, admin1, timezone } = place;
+  const fcUrl =
+    `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
+    `&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,precipitation` +
+    `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum` +
+    `&forecast_days=3&timezone=${encodeURIComponent(timezone || 'auto')}`;
+  const fcResp = await fetch(fcUrl);
+  if (!fcResp.ok) throw new Error(`forecast HTTP ${fcResp.status}`);
+  const data = await fcResp.json();
+  return {
+    location: {
+      name,
+      country: country_code,
+      region: admin1,
+      latitude,
+      longitude,
+      timezone: data.timezone,
+    },
+    current: data.current,
+    daily: data.daily,
+    units: { current: data.current_units, daily: data.daily_units },
+  };
+}
+
+ipcMain.handle('weather:get', async (_e, args) => {
+  const loc = (args && args.location) || '';
+  return cachedRead(`weather:${loc.toLowerCase()}`, () => fetchWeather(loc));
+});
+
+// --- Obsidian (via mcp-obsidian over the Local REST API plugin) -----------
+
+let obsidianClient = null;
+let obsidianInitPromise = null;
+
+async function initObsidianMCP() {
+  if (obsidianClient) return obsidianClient;
+  if (obsidianInitPromise) return obsidianInitPromise;
+  if (!process.env.OBSIDIAN_API_KEY) {
+    throw new Error('OBSIDIAN_API_KEY not set in overlay/.env — get it from Obsidian → Settings → Local REST API.');
+  }
+  obsidianInitPromise = (async () => {
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
+    const transport = new StdioClientTransport({
+      command: '/opt/homebrew/bin/uvx',
+      args: ['mcp-obsidian'],
+      env: {
+        ...process.env,
+        OBSIDIAN_API_KEY: process.env.OBSIDIAN_API_KEY,
+        OBSIDIAN_HOST: process.env.OBSIDIAN_HOST || '127.0.0.1',
+        OBSIDIAN_PORT: process.env.OBSIDIAN_PORT || '27124',
+      },
+    });
+    const client = new Client(
+      { name: 'overlay', version: '1.0.0' },
+      { capabilities: {} }
+    );
+    await client.connect(transport);
+    obsidianClient = client;
+    return client;
+  })().catch((err) => {
+    obsidianInitPromise = null;
+    throw err;
+  });
+  return obsidianInitPromise;
+}
+
+async function callObsidianTool(name, args) {
+  const c = await initObsidianMCP();
+  const res = await c.callTool({ name, arguments: args || {} });
+  const texts = Array.isArray(res.content)
+    ? res.content.filter((b) => b && b.type === 'text').map((b) => b.text)
+    : [];
+  if (res.isError) {
+    throw new Error(texts.join('\n').trim() || `obsidian tool ${name} failed`);
+  }
+  if (!texts.length) return res.content || null;
+  if (texts.length === 1) {
+    const t = texts[0].trim();
+    if (t.startsWith('{') || t.startsWith('[')) {
+      try { return JSON.parse(t); } catch {}
+    }
+    return texts[0];
+  }
+  return texts;
+}
+
+ipcMain.handle('obsidian:list_vault', (_e, args) => callObsidianTool('obsidian_list_files_in_vault', args));
+ipcMain.handle('obsidian:list_dir', (_e, args) => callObsidianTool('obsidian_list_files_in_dir', args));
+ipcMain.handle('obsidian:get_file', (_e, args) => callObsidianTool('obsidian_get_file_contents', args));
+ipcMain.handle('obsidian:search', (_e, args) => callObsidianTool('obsidian_simple_search', args));
+ipcMain.handle('obsidian:patch', (_e, args) => callObsidianTool('obsidian_patch_content', args));
+ipcMain.handle('obsidian:append', (_e, args) => callObsidianTool('obsidian_append_content', args));
+ipcMain.handle('obsidian:delete', (_e, args) => callObsidianTool('obsidian_delete_file', args));
+ipcMain.handle('obsidian:list_tools', async () => {
+  const c = await initObsidianMCP();
+  const res = await c.listTools();
+  return (res.tools || []).map((t) => ({
+    name: t.name,
+    description: t.description,
+    inputSchema: t.inputSchema,
+  }));
+});
+
+app.whenReady().then(() => {
+  initObsidianMCP().catch((err) => {
+    console.error('obsidian-mcp init failed:', err && err.message ? err.message : err);
+  });
+});
+
+app.on('will-quit', () => {
+  if (obsidianClient) {
+    obsidianClient.close().catch(() => {});
+    obsidianClient = null;
+  }
+});

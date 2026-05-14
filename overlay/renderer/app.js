@@ -1,6 +1,6 @@
 const MODEL = 'claude-sonnet-4-6';
 const API_URL = 'https://api.anthropic.com/v1/messages';
-const MAX_TOKENS = 900;
+const MAX_TOKENS = 4096;
 
 async function buildSystemPrompt() {
   let memIndex = '(empty — bootstrap not run)';
@@ -11,13 +11,17 @@ async function buildSystemPrompt() {
   return [
     `Current date: ${today}.`,
     'You are a fast, smart, general-purpose assistant living in a small floating overlay on a Mac.',
-    'The user is a CS student at Cambridge. Help with anything: questions, lookups, code, planning, schedule, life admin.',
+    'Help with anything: questions, lookups, code, planning, schedule, life admin.',
     '',
     'Tools you can use (call them whenever they help — do not narrate that you are about to):',
     '- `web_search` — current/factual lookups (news, docs, prices, sports, weather, anything time-sensitive or you would not reliably know).',
     '- Calendar: `get_todays_events`, `get_upcoming_events`, `create_event`.',
     '- Reminders: `get_reminders`, `create_reminder`.',
-    '- Memory: `list_memory_files`, `read_memory`, `write_memory`, `append_memory`, `delete_memory` (see below).',
+    '- Mail: `get_unread_mail`, `search_mail`, `create_mail_draft` (draft only, never sent automatically — Mail.app opens it for the user to send), `mark_mail_read` (flip a message to read using its `messageId` from `get_unread_mail`).',
+    '- Anki: `anki_list_decks`, `anki_add_card`, `anki_search_cards` (requires Anki running + AnkiConnect add-on).',
+    '- Weather: `get_weather` (Open-Meteo, accepts any place name).',
+    '- Memory: `list_memory_files`, `read_memory`, `write_memory`, `append_memory`, `delete_memory` (see below) — this is the assistant\'s private scratchpad.',
+    '- Obsidian vault: `obsidian_search`, `obsidian_list_vault`, `obsidian_list_dir`, `obsidian_get_file`, `obsidian_append`, `obsidian_patch`, `obsidian_delete`. This is the user\'s personal knowledge vault, served via the Local REST API plugin. Use it when the user asks about their own notes, refers to a topic they\'ve written about, or wants to record something durable. Paths are vault-relative (e.g. `Areas/Coursework.md`). To create a new note, use `obsidian_append` with a path that doesn\'t yet exist.',
     '- Screenshots attached by the user are a live capture of their Mac screen — treat as visual context.',
     '',
     'Long-term memory — tree of markdown files:',
@@ -44,12 +48,15 @@ async function buildSystemPrompt() {
     '```',
     '',
     'Response style — strict:',
-    '- Concise. 1–3 short lines unless the user asks for depth.',
+    '- Default to one short sentence. Treat every reply as a headline, not an article.',
+    '- If the full answer would naturally run beyond ~3 lines, give a one-sentence summary and stop. Do not pre-emptively expand.',
+    '- Only elaborate when the user asks ("explain", "more", "why", "details", "expand", a follow-up question). Then give just the next layer — still concise.',
     '- No preamble, recap, or sign-off. No "Sure!", "Of course", "Let me…", "Hope this helps".',
     '- Markdown is rendered: use **bold**, `code`, fenced ```code blocks```, bullet lists, and headers when they aid scanability. Prefer bullets over prose.',
     '- For schedule answers: bullets — title, time, calendar.',
     '- For factual answers: lead with the answer; cite sources only if web_search returned them.',
     '- For code: just the snippet in a fenced block; explain only if asked.',
+    '- Never use emojis. No emoji in headings, bullets, status indicators, or anywhere in output.',
   ].join('\n');
 }
 
@@ -157,6 +164,171 @@ const TOOLS = [
       type: 'object',
       properties: { path: { type: 'string' } },
       required: ['path'],
+    },
+  },
+  {
+    name: 'get_unread_mail',
+    description: 'Fetch recent unread messages from the macOS Mail inbox. Returns subject, sender, date received, and a short snippet.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 50, description: 'Max messages to return (default 10).' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'search_mail',
+    description: 'Search the macOS Mail inbox for messages whose subject or sender contains the query (case-insensitive substring).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+        limit: { type: 'integer', minimum: 1, maximum: 50 },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'create_mail_draft',
+    description: 'Open a new Mail draft (visible, not auto-sent). The user reviews and sends it manually. `to` may be a single address or a comma-separated list.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        to: { type: 'string', description: 'Recipient email address(es), comma-separated for multiple.' },
+        subject: { type: 'string' },
+        body: { type: 'string' },
+      },
+      required: ['to', 'subject'],
+    },
+  },
+  {
+    name: 'mark_mail_read',
+    description: 'Mark a Mail.app inbox message as read. Use the `messageId` returned by `get_unread_mail`. Returns `{matched: n}` — n is the number of inbox messages updated (0 if not found, normally 1).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        messageId: { type: 'string', description: 'RFC822 Message-Id header, exactly as returned by get_unread_mail (e.g. "<abc@example.com>").' },
+      },
+      required: ['messageId'],
+    },
+  },
+  {
+    name: 'anki_list_decks',
+    description: 'List all Anki deck names. Requires the Anki desktop app to be running with the AnkiConnect add-on (code 2055492159) installed.',
+    input_schema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'anki_add_card',
+    description: 'Create a Basic flashcard (Front/Back) in the named Anki deck.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        deck: { type: 'string', description: 'Exact deck name (call anki_list_decks first if unsure).' },
+        front: { type: 'string', description: 'Prompt side.' },
+        back: { type: 'string', description: 'Answer side.' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'Optional tags.' },
+      },
+      required: ['deck', 'front', 'back'],
+    },
+  },
+  {
+    name: 'anki_search_cards',
+    description: 'Search Anki notes using Anki search syntax (e.g. "deck:Spanish tag:verb", "front:hello"). Returns up to `limit` notes.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'obsidian_search',
+    description: 'Full-text search across the user\'s Obsidian vault. Returns matching note paths with snippets and match counts.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search terms.' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'obsidian_list_vault',
+    description: 'List all files and directories at the root of the user\'s Obsidian vault.',
+    input_schema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'obsidian_list_dir',
+    description: 'List files and directories inside a specific folder of the user\'s Obsidian vault.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        dirpath: { type: 'string', description: 'Vault-relative folder path (e.g. "Areas").' },
+      },
+      required: ['dirpath'],
+    },
+  },
+  {
+    name: 'obsidian_get_file',
+    description: 'Read the full contents of a single note in the user\'s Obsidian vault. Use `obsidian_search` or `obsidian_list_dir` first if you don\'t know the exact path.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        filepath: { type: 'string', description: 'Vault-relative path to the .md file (e.g. "Areas/Coursework.md").' },
+      },
+      required: ['filepath'],
+    },
+  },
+  {
+    name: 'obsidian_append',
+    description: 'Append content to an existing note, or create a new note if the path does not yet exist. Use this for capturing fresh thoughts into the vault.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        filepath: { type: 'string', description: 'Vault-relative path (e.g. "Inbox/My Note.md").' },
+        content: { type: 'string', description: 'Markdown to append (a leading blank line is recommended for separation).' },
+      },
+      required: ['filepath', 'content'],
+    },
+  },
+  {
+    name: 'obsidian_patch',
+    description: 'Insert content surgically into an existing note, relative to a heading, block reference, or frontmatter field. Use when the user wants to add to a specific section rather than the end.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        filepath: { type: 'string' },
+        operation: { type: 'string', enum: ['append', 'prepend', 'replace'], description: 'How to apply the patch relative to the target.' },
+        target_type: { type: 'string', enum: ['heading', 'block', 'frontmatter'] },
+        target: { type: 'string', description: 'For headings, the heading text (e.g. "## Today"). For blocks, the block id. For frontmatter, the field name.' },
+        content: { type: 'string' },
+      },
+      required: ['filepath', 'operation', 'target_type', 'target', 'content'],
+    },
+  },
+  {
+    name: 'obsidian_delete',
+    description: 'Delete a file or directory in the user\'s Obsidian vault. Confirm with the user before destructive deletes of long-standing notes.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        filepath: { type: 'string', description: 'Vault-relative path to delete.' },
+      },
+      required: ['filepath'],
+    },
+  },
+  {
+    name: 'get_weather',
+    description: 'Current weather + 3-day forecast for a place. Uses Open-Meteo (no API key). WMO weather codes: 0=clear, 1-3=mostly clear→overcast, 45/48=fog, 51-57=drizzle, 61-67=rain, 71-77=snow, 80-82=rain showers, 85-86=snow showers, 95-99=thunderstorm.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        location: { type: 'string', description: 'City or place name, e.g. "Cambridge UK", "Tokyo".' },
+      },
+      required: ['location'],
     },
   },
   {
@@ -747,6 +919,7 @@ async function runAgenticLoop() {
       let assistantBlocks = [];
 
       try {
+        sanitizeConversation();
         const systemPrompt = await buildSystemPrompt();
         const result = await streamMessage({
           apiKey,
@@ -841,6 +1014,31 @@ function rollbackOrphanedToolUse() {
   }
 }
 
+function sanitizeConversation() {
+  for (let i = 0; i < conversation.length; i++) {
+    const msg = conversation[i];
+    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue;
+    const next = conversation[i + 1];
+    const resolvedIds =
+      next && next.role === 'user' && Array.isArray(next.content)
+        ? new Set(
+            next.content
+              .filter((b) => b && b.type === 'tool_result' && b.tool_use_id)
+              .map((b) => b.tool_use_id)
+          )
+        : new Set();
+    const cleaned = msg.content.filter(
+      (b) => !b || b.type !== 'tool_use' || resolvedIds.has(b.id)
+    );
+    if (cleaned.length === msg.content.length) continue;
+    if (cleaned.length === 0) {
+      msg.content = [{ type: 'text', text: '(tool call dropped)' }];
+    } else {
+      msg.content = cleaned;
+    }
+  }
+}
+
 async function runTool(name, input) {
   const a = window.appleScripts;
   const m = window.memory;
@@ -865,6 +1063,36 @@ async function runTool(name, input) {
       return await m.append(input.path, input.content);
     case 'delete_memory':
       return await m.delete(input.path);
+    case 'get_unread_mail':
+      return await window.mail.get_unread(input.limit);
+    case 'search_mail':
+      return await window.mail.search(input);
+    case 'create_mail_draft':
+      return await window.mail.create_draft(input);
+    case 'mark_mail_read':
+      return await window.mail.mark_read(input);
+    case 'anki_list_decks':
+      return await window.anki.list_decks();
+    case 'anki_add_card':
+      return await window.anki.add_card(input);
+    case 'anki_search_cards':
+      return await window.anki.search_cards(input);
+    case 'get_weather':
+      return await window.weather.get(input.location);
+    case 'obsidian_search':
+      return await window.obsidian.search(input);
+    case 'obsidian_list_vault':
+      return await window.obsidian.list_vault(input);
+    case 'obsidian_list_dir':
+      return await window.obsidian.list_dir(input);
+    case 'obsidian_get_file':
+      return await window.obsidian.get_file(input);
+    case 'obsidian_append':
+      return await window.obsidian.append(input);
+    case 'obsidian_patch':
+      return await window.obsidian.patch(input);
+    case 'obsidian_delete':
+      return await window.obsidian.delete(input);
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
