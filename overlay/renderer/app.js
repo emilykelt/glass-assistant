@@ -1,15 +1,38 @@
-const MODEL = 'claude-sonnet-4-6';
+const MODEL_FAST = 'claude-haiku-4-5-20251001';
+const MODEL_DEEP = 'claude-sonnet-4-6';
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const MAX_TOKENS = 4096;
+
+function pickModel(text, hasImage) {
+  const t = String(text || '');
+  if (/^\/(deep|sonnet)\b/i.test(t)) return MODEL_DEEP;
+  if (/^\/(fast|haiku)\b/i.test(t)) return MODEL_FAST;
+  if (hasImage) return MODEL_DEEP;
+  if (t.length > 240) return MODEL_DEEP;
+  if (/```|^\s{4}|\b(function|class|import|const |let |async )/.test(t)) return MODEL_DEEP;
+  if (/\b(fix|debug|refactor|implement|why (is|does|isn't|doesn't)|trace|stack)/i.test(t)) return MODEL_DEEP;
+  if (/\b(plan|design|analy[sz]e|compare|reason|outline|draft|research)\b/i.test(t)) return MODEL_DEEP;
+  if (/\b(search.*(and|then).*(add|write|create|reply|draft)|find.*(and|then).*(reply|draft|add)|(then).*(then))/i.test(t)) return MODEL_DEEP;
+  return MODEL_FAST;
+}
+
+function stripModelPrefix(text) {
+  return String(text || '').replace(/^\/(deep|sonnet|fast|haiku)\s+/i, '');
+}
 
 async function buildSystemPrompt() {
   let memIndex = '(empty — bootstrap not run)';
   try {
     memIndex = await window.memory.read('memory.md');
   } catch {}
-  const today = new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const longDate = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const localTime = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone;
   return [
-    `Current date: ${today}.`,
+    `Today is ${longDate}. Local time: ${localTime} (${tzName}). ISO date: ${today}.`,
+    'Treat the date and weekday above as ground truth — never compute the day of the week from the ISO date yourself.',
     'You are a fast, smart, general-purpose assistant living in a small floating overlay on a Mac.',
     'Help with anything: questions, lookups, code, planning, schedule, life admin.',
     '',
@@ -873,9 +896,11 @@ function addTyping() {
 
 async function submit() {
   if (busy) return;
-  const text = inputEl.value.trim();
+  const rawText = inputEl.value.trim();
   const image = pendingImage;
-  if (!text && !image) return;
+  if (!rawText && !image) return;
+  const model = pickModel(rawText, !!image);
+  const text = stripModelPrefix(rawText);
   inputEl.value = '';
   inputEl.style.height = 'auto';
   addUserBubble(text, image);
@@ -892,10 +917,11 @@ async function submit() {
   } else {
     conversation.push({ role: 'user', content: text });
   }
-  await runAgenticLoop();
+  await runAgenticLoop(model);
 }
 
-async function runAgenticLoop() {
+async function runAgenticLoop(model) {
+  const useModel = model || MODEL_FAST;
   const mySession = sessionId;
   busy = true;
   sendBtn.disabled = true;
@@ -923,6 +949,7 @@ async function runAgenticLoop() {
         const systemPrompt = await buildSystemPrompt();
         const result = await streamMessage({
           apiKey,
+          model: useModel,
           system: systemPrompt,
           messages: conversation,
           onTextStart: () => {
@@ -1098,9 +1125,9 @@ async function runTool(name, input) {
   }
 }
 
-async function streamMessage({ apiKey, system, messages, onTextStart, onText }) {
+async function streamMessage({ apiKey, model, system, messages, onTextStart, onText }) {
   const body = {
-    model: MODEL,
+    model: model || MODEL_FAST,
     max_tokens: MAX_TOKENS,
     system,
     tools: TOOLS,
