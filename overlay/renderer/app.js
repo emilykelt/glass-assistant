@@ -41,7 +41,7 @@ async function buildSystemPrompt() {
     '- Calendar: `get_todays_events`, `get_upcoming_events`, `create_event`.',
     '- Reminders: `get_reminders`, `create_reminder`.',
     '- Mail: `get_unread_mail`, `search_mail`, `create_mail_draft` (draft only, never sent automatically — Mail.app opens it for the user to send), `mark_mail_read` (flip a message to read using its `messageId` from `get_unread_mail`).',
-    '- Anki: `anki_list_decks`, `anki_add_card`, `anki_search_cards` (requires Anki running + AnkiConnect add-on).',
+    '- Anki: `anki_list_decks`, `anki_add_card`, `anki_search_cards` (requires Anki running + AnkiConnect add-on). See "Anki — flashcard policy" below.',
     '- Weather: `get_weather` (Open-Meteo, accepts any place name).',
     '- Memory: `list_memory_files`, `read_memory`, `write_memory`, `append_memory`, `delete_memory` (see below) — this is the assistant\'s private scratchpad.',
     '- Obsidian vault: `obsidian_search`, `obsidian_list_vault`, `obsidian_list_dir`, `obsidian_get_file`, `obsidian_append`, `obsidian_patch`, `obsidian_delete`. This is the user\'s personal knowledge vault, served via the Local REST API plugin. Use it when the user asks about their own notes, refers to a topic they\'ve written about, or wants to record something durable. Paths are vault-relative (e.g. `Areas/Coursework.md`). To create a new note, use `obsidian_append` with a path that doesn\'t yet exist.',
@@ -69,6 +69,17 @@ async function buildSystemPrompt() {
     '```',
     memIndex.trim() || '(empty)',
     '```',
+    '',
+    'Anki — flashcard policy:',
+    "- Decks are namespaced under `Part IB::<topic>` (the user's Cambridge Tripos Part IB modules). Known decks: `Part IB::AI`, `Part IB::Architecture`, `Part IB::C/C++`, `Part IB::Compilers`, `Part IB::Complexity Theory`, `Part IB::Computation theory`, `Part IB::Concurrent and Distributed Systems`, `Part IB::Cybersec`, `Part IB::Data Science`, `Part IB::Econ, Law, and Ethics`, `Part IB::Formal Models of Language`, `Part IB::Further Graphics`, `Part IB::Further HCI`, `Part IB::Logic & Proof`, `Part IB::Networking`, `Part IB::Networking (Claude's Flashcards)`, `Part IB::Prolog`, `Part IB::Semantics`.",
+    '- When the user asks to add a card without naming a deck, infer the closest deck from the topic. If genuinely unsure of the exact name (e.g. spelling, ampersand vs "and"), call `anki_list_decks` once first.',
+    '- Apply the *minimum information principle* (Wozniak):',
+    '  * One atomic fact per card — split compound or list-like facts into multiple cards.',
+    '  * Front is a specific question, not a topic label. Back is the shortest correct answer (a phrase, value, or one-line definition).',
+    '  * Never restate on the Back any context already on the Front.',
+    '  * Avoid enumerations/sets — if you must list N items, make N cards each with a discriminating cue, not one card with a list.',
+    '  * Prefer concrete, retrievable cues over open-ended prompts ("Why does X?" is bad; "X happens because…" with the *one* required clause as the answer is good).',
+    '- After adding card(s), confirm in one line per card: `Added to <Deck>: <Front>`. Do not narrate the deck inference unless asked.',
     '',
     'Response style — strict:',
     '- Default to one short sentence. Treat every reply as a headline, not an article.',
@@ -712,7 +723,6 @@ function syncWindowHeight() {
     pendingSync = false;
     const drag = document.getElementById('dragHandle').offsetHeight;
     const composer = document.getElementById('composer').offsetHeight;
-    const context = document.getElementById('contextBar').offsetHeight;
     const kids = Array.from(messagesEl.children);
     let msgsH = 0;
     if (kids.length) {
@@ -720,7 +730,7 @@ function syncWindowHeight() {
       msgsH += (kids.length - 1) * 8;
       msgsH += 16;
     }
-    const total = drag + msgsH + composer + context + 4;
+    const total = drag + msgsH + composer + 4;
     window.api.resizeToContent(total);
   });
 }

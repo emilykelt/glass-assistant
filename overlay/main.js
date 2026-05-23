@@ -19,8 +19,7 @@ function createWindow() {
     resizable: true,
     hasShadow: true,
     alwaysOnTop: true,
-    vibrancy: 'hud',
-    visualEffectState: 'active',
+    roundedCorners: true,
     backgroundColor: '#00000000',
     skipTaskbar: false,
     webPreferences: {

@@ -13,6 +13,6 @@
     "dotenv": "^16.4.5"
   },
   "devDependencies": {
-    "electron": "^33.2.0"
+    "electron": "^42.2.0"
   }
 }
