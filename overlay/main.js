@@ -248,6 +248,64 @@ ipcMain.handle('memory:read', (_e, rel) => {
   return fs.readFileSync(abs, 'utf8');
 });
 
+// One-hop graph read: return the file plus the contents of the notes it
+// [[links]] to. Used only by the read_memory tool — never by the index load
+// in buildSystemPrompt (memory.md links to everything, which would balloon the
+// prompt). Broken links are skipped silently; they mark notes not yet written.
+const MEM_LINK_MAX = 6; // most neighbours to inline
+const MEM_LINK_BYTES = 2000; // per-neighbour cap
+const MEM_LINK_TOTAL = 8000; // total neighbour bytes cap
+
+function extractWikilinks(text) {
+  const out = [];
+  const seen = new Set();
+  const re = /\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]/g;
+  let match;
+  while ((match = re.exec(text))) {
+    let target = match[1].trim();
+    if (!target) continue;
+    if (!target.endsWith('.md')) target += '.md';
+    if (seen.has(target)) continue;
+    seen.add(target);
+    out.push(target);
+  }
+  return out;
+}
+
+ipcMain.handle('memory:readGraph', (_e, rel) => {
+  const abs = resolveMemPath(rel);
+  if (!fs.existsSync(abs)) throw new Error(`memory file not found: ${rel}`);
+  const primary = fs.readFileSync(abs, 'utf8');
+  const self = path.resolve(abs);
+  const sections = [];
+  let budget = MEM_LINK_TOTAL;
+  for (const target of extractWikilinks(primary)) {
+    if (sections.length >= MEM_LINK_MAX || budget <= 0) break;
+    let linkedAbs;
+    try {
+      linkedAbs = resolveMemPath(target);
+    } catch {
+      continue; // out-of-tree or malformed link — skip
+    }
+    if (path.resolve(linkedAbs) === self) continue;
+    if (!fs.existsSync(linkedAbs)) continue; // unwritten note — skip silently
+    let body = fs.readFileSync(linkedAbs, 'utf8');
+    const cap = Math.min(MEM_LINK_BYTES, budget);
+    if (Buffer.byteLength(body, 'utf8') > cap) {
+      // slice by bytes, then trim any partial trailing UTF-8 sequence
+      body = Buffer.from(body, 'utf8').slice(0, cap).toString('utf8').replace(/�+$/, '') + '\n… (truncated)';
+    }
+    budget -= Buffer.byteLength(body, 'utf8');
+    sections.push(`### [[${target}]]\n${body.trim()}`);
+  }
+  if (!sections.length) return primary;
+  return (
+    primary.replace(/\s+$/, '') +
+    '\n\n---\n## Linked notes (1 hop)\n\n' +
+    sections.join('\n\n')
+  );
+});
+
 ipcMain.handle('memory:write', (_e, payload) => {
   const { path: rel, content } = payload || {};
   const abs = resolveMemPath(rel);

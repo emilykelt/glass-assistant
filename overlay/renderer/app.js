@@ -53,6 +53,7 @@ async function buildSystemPrompt() {
     '- `general.md` — stable user preferences, identity, environment.',
     '- `domain/{topic}.md` — topic-specific knowledge (one file per topic).',
     '- `tools/{tool}.md` — tool configs, CLI patterns, workarounds.',
+    'Notes form a graph: link related notes with `[[relative/path.md]]` wikilinks (memory-relative, matching the real filename incl. `.md`). Linking is worthwhile because `read_memory` pulls in one-hop neighbours automatically, so a good link web makes one read return the related cluster.',
     '',
     'Rules:',
     '1. The index below is your map. Only call `read_memory` for a specific file if its description suggests it is relevant to the current question — do NOT preemptively read every file.',
@@ -62,8 +63,9 @@ async function buildSystemPrompt() {
     '   - Tool/CLI quirk → `write_memory("tools/<tool>.md", …)` and update `memory.md`.',
     '3. Prefix every new entry with `**[YYYY-MM-DD]**` (today: ' + today + ') so age can be judged.',
     '4. When you create or delete a file, also call `write_memory("memory.md", …)` to keep the index accurate (one bullet per file with a one-line purpose).',
-    '5. Do not narrate memory operations — perform them silently.',
-    '6. Be selective: durable facts about *the user* only. Skip trivia.',
+    '5. When you write or update a note, add `[[wikilinks]]` to any related notes you know exist (e.g. a `domain/` note linking the `general.md` fact it elaborates, or two related topics linking each other). Links are cheap and power one-hop recall.',
+    '6. Do not narrate memory operations — perform them silently.',
+    '7. Be selective: durable facts about *the user* only. Skip trivia.',
     '',
     'Current memory index (memory.md):',
     '```',
@@ -156,7 +158,7 @@ const TOOLS = [
   {
     name: 'read_memory',
     description:
-      'Read the contents of a specific memory file by relative path (e.g. "general.md", "domain/coursework.md", "tools/vim.md"). Only fetch a file when its content is likely relevant to the current question — do not load files speculatively.',
+      'Read the contents of a specific memory file by relative path (e.g. "general.md", "domain/coursework.md", "tools/vim.md"). Only fetch a file when its content is likely relevant to the current question — do not load files speculatively. Returns the file plus the contents of the notes it [[links]] to (one hop) — up to 6 neighbours, each capped at ~2 KB; extra links are omitted, so read a specific file directly if you need its full contents.',
     input_schema: {
       type: 'object',
       properties: {
@@ -168,7 +170,7 @@ const TOOLS = [
   {
     name: 'write_memory',
     description:
-      'Create or overwrite a memory file. Use to add a new topic file (under `domain/` or `tools/`) or to reorganize an existing one. Whenever you add or remove a file, also update `memory.md` to keep the index accurate. Date entries inside the file with **[YYYY-MM-DD]** prefixes.',
+      'Create or overwrite a memory file. Use to add a new topic file (under `domain/` or `tools/`) or to reorganize an existing one. Whenever you add or remove a file, also update `memory.md` to keep the index accurate. Date entries inside the file with **[YYYY-MM-DD]** prefixes. Include `[[relative/path.md]]` wikilinks to related notes so one-hop reads pull them in.',
     input_schema: {
       type: 'object',
       properties: {
@@ -181,7 +183,7 @@ const TOOLS = [
   {
     name: 'append_memory',
     description:
-      'Append a markdown block to an existing memory file (creates the file if missing). Prefix every new entry with **[YYYY-MM-DD]** so age can be judged. Preferred over `write_memory` for adding a single fact to an existing file.',
+      'Append a markdown block to an existing memory file (creates the file if missing). Prefix every new entry with **[YYYY-MM-DD]** so age can be judged. Add `[[relative/path.md]]` wikilinks to related notes where relevant. Preferred over `write_memory` for adding a single fact to an existing file.',
     input_schema: {
       type: 'object',
       properties: {
@@ -1093,7 +1095,7 @@ async function runTool(name, input) {
     case 'list_memory_files':
       return await m.tree();
     case 'read_memory':
-      return await m.read(input.path);
+      return await m.readGraph(input.path);
     case 'write_memory':
       return await m.write(input.path, input.content);
     case 'append_memory':

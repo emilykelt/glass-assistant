@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('api', {
 contextBridge.exposeInMainWorld('memory', {
   tree: () => ipcRenderer.invoke('memory:tree'),
   read: (path) => ipcRenderer.invoke('memory:read', path),
+  readGraph: (path) => ipcRenderer.invoke('memory:readGraph', path),
   write: (path, content) => ipcRenderer.invoke('memory:write', { path, content }),
   append: (path, content) => ipcRenderer.invoke('memory:append', { path, content }),
   delete: (path) => ipcRenderer.invoke('memory:delete', path),
