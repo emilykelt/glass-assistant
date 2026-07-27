@@ -6,7 +6,7 @@ Single developer, single user, no CI, no tests.
 
 ## Layout
 
-All app code lives under `overlay/`. The repo root is otherwise empty (this file + `.git/` + `.claude/`).
+All app code lives under `overlay/`. The repo root holds only project docs (this file, `IDEAS.md`) + `.git/` + `.claude/`.
 
 ```
 overlay/
@@ -41,6 +41,17 @@ The launcher `.app` is built once and rarely:
 osacompile -o Glass.app launcher.applescript
 # then re-apply the custom icon from Glass.iconset/
 ```
+
+## Feature backlog
+
+Ideas we're considering live in `IDEAS.md` at the repo root (checked into git — this is a **dev roadmap**, distinct from both the runtime overlay memory and `.claude` memory). Each entry is stamped with the date and the commit HEAD at logging time.
+
+```bash
+cd overlay
+npm run idea -- "Short title" "Optional description"   # auto-stamps date + short SHA
+```
+
+Before acting on an existing idea, run `git log <sha>..HEAD --oneline` with the entry's SHA to check what changed since — it may already be done or stale. Update each entry's `Status:` (`open` / `in progress` / `done` / `dropped`) by hand.
 
 ## Runtime architecture invariants
 

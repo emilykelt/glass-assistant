@@ -5,6 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "idea": "node scripts/log-idea.mjs",
     "build:helper": "swiftc -O -o ekhelper ekhelper.swift && codesign --sign - --force ekhelper",
     "postinstall": "npm run build:helper || true"
   },
