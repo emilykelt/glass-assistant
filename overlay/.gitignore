@@ -6,3 +6,6 @@ out/
 *.log
 ekhelper
 memory.json.bak
+
+# personal candidate profile for scripts/job-watch.mjs
+scripts/job-profile.md

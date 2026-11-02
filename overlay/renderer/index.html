@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta http-equiv="Content-Security-Policy"
-      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src https://api.anthropic.com" />
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; media-src 'self' data:; connect-src https://api.anthropic.com" />
     <title>Glass</title>
     <link rel="stylesheet" href="style.css" />
   </head>
@@ -19,6 +19,10 @@
           <span><kbd>⌘⇧I</kbd> capture</span>
           <span><kbd>⌘V</kbd> paste image</span>
           <span><kbd>⌘K</kbd> clear</span>
+          <span><kbd>⌘⇧M</kbd> voice</span>
+          <span><kbd>/radio</kbd> host on/off</span>
+          <span><kbd>/briefing</kbd> morning run-down</span>
+          <span><kbd>/alarm</kbd> 07:30 · test · off</span>
         </div>
       </div>
 
@@ -31,6 +35,7 @@
             <button id="attachRemove" class="thumb-x" title="Remove">×</button>
           </div>
         </div>
+        <div id="voicePill" class="voice-pill"><span class="dot"></span><span id="voicePillText">Listening</span></div>
         <div class="pill">
           <textarea id="input" rows="1" autofocus></textarea>
         </div>

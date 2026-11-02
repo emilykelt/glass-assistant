@@ -4,8 +4,12 @@ contextBridge.exposeInMainWorld('appleScripts', {
   get_todays_events: () => ipcRenderer.invoke('apple:get_todays_events'),
   get_upcoming_events: (days) => ipcRenderer.invoke('apple:get_upcoming_events', days),
   create_event: (args) => ipcRenderer.invoke('apple:create_event', args),
+  search_events: (args) => ipcRenderer.invoke('apple:search_events', args),
+  update_event: (args) => ipcRenderer.invoke('apple:update_event', args),
+  delete_event: (args) => ipcRenderer.invoke('apple:delete_event', args),
   get_reminders: () => ipcRenderer.invoke('apple:get_reminders'),
   create_reminder: (args) => ipcRenderer.invoke('apple:create_reminder', args),
+  calendars: () => ipcRenderer.invoke('apple:calendars'),
   raw: (script) => ipcRenderer.invoke('run-applescript', script),
 });
 
@@ -16,6 +20,9 @@ contextBridge.exposeInMainWorld('api', {
   setWindowSize: (width, height) => ipcRenderer.send('set-window-size', { width, height }),
   onManualResize: (cb) => ipcRenderer.on('manual-resize', cb),
   captureScreen: () => ipcRenderer.invoke('capture-screen'),
+  log: (msg) => ipcRenderer.send('renderer:log', String(msg).slice(0, 4000)),
+  showWindow: () => ipcRenderer.send('window:show'),
+  alarmArmed: (armed) => ipcRenderer.send('alarm:armed', !!armed),
 });
 
 contextBridge.exposeInMainWorld('memory', {
@@ -53,4 +60,50 @@ contextBridge.exposeInMainWorld('obsidian', {
   append: (args) => ipcRenderer.invoke('obsidian:append', args),
   delete: (args) => ipcRenderer.invoke('obsidian:delete', args),
   list_tools: () => ipcRenderer.invoke('obsidian:list_tools'),
+});
+
+contextBridge.exposeInMainWorld('creature', {
+  say: (args) => ipcRenderer.invoke('creature:say', args),
+  status: () => ipcRenderer.invoke('creature:status'),
+});
+
+contextBridge.exposeInMainWorld('people', {
+  capture: (args) => ipcRenderer.invoke('person:capture', args),
+  list: () => ipcRenderer.invoke('person:list'),
+});
+
+contextBridge.exposeInMainWorld('health', {
+  log: (args) => ipcRenderer.invoke('health:log', args),
+  list: (args) => ipcRenderer.invoke('health:list', args),
+});
+
+contextBridge.exposeInMainWorld('lunch', {
+  menu: (args) => ipcRenderer.invoke('lunch:menu', args),
+});
+
+contextBridge.exposeInMainWorld('geo', {
+  geocode: (query) => ipcRenderer.invoke('geo:geocode', { query }),
+  placesNearby: (args) => ipcRenderer.invoke('places:nearby', args),
+  tiles: (args) => ipcRenderer.invoke('map:tiles', args),
+});
+
+contextBridge.exposeInMainWorld('spotify', {
+  play: (args) => ipcRenderer.invoke('spotify:play', args),
+  control: (action) => ipcRenderer.invoke('spotify:control', { action }),
+  now: (opts) => ipcRenderer.invoke('spotify:now', opts),
+  volume: (level) => ipcRenderer.invoke('spotify:volume', level),
+});
+
+contextBridge.exposeInMainWorld('system', {
+  volume: (level) => ipcRenderer.invoke('system:volume', level),
+  onBattery: () => ipcRenderer.invoke('system:onBattery'),
+});
+
+contextBridge.exposeInMainWorld('voice', {
+  start: () => ipcRenderer.invoke('voice:start'),
+  stop: () => ipcRenderer.invoke('voice:stop'),
+  audio: (chunk) => ipcRenderer.send('voice:audio', chunk),
+  speak: (text) => ipcRenderer.invoke('voice:speak', { text }),
+  onEvent: (cb) => ipcRenderer.on('voice:event', (_e, ev) => cb(ev)),
+  onToggle: (cb) => ipcRenderer.on('voice:toggle', () => cb()),
 });
