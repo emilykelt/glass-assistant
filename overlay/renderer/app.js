@@ -560,7 +560,7 @@ const TOOLS = [
   },
   {
     name: 'get_weather',
-    description: 'Current weather + 3-day forecast for a place. Uses Open-Meteo (no API key). WMO weather codes: 0=clear, 1-3=mostly clear→overcast, 45/48=fog, 51-57=drizzle, 61-67=rain, 71-77=snow, 80-82=rain showers, 85-86=snow showers, 95-99=thunderstorm.',
+    description: 'Current weather + 3-day forecast for a place. Uses Open-Meteo (no API key). If the result has `unavailable: true` the weather service is down: leave weather out without comment, unless the user asked for the weather, then say in one line that it is unavailable. Do not retry. WMO weather codes: 0=clear, 1-3=mostly clear→overcast, 45/48=fog, 51-57=drizzle, 61-67=rain, 71-77=snow, 80-82=rain showers, 85-86=snow showers, 95-99=thunderstorm.',
     input_schema: {
       type: 'object',
       properties: {

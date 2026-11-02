@@ -930,6 +930,13 @@ ipcMain.handle('anki:search_cards', async (_e, args) => {
 });
 
 // --- Weather (Open-Meteo, no API key) -------------------------------------
+// Open-Meteo has outages (timeouts, 503s). Weather is never essential, so an
+// outage returns { unavailable: true } and the model leaves weather out,
+// instead of the whole tool call failing.
+
+const WEATHER_TIMEOUT_MS = 8000;
+
+class WeatherUnavailable extends Error {}
 
 async function fetchWeather(location) {
   const q = String(location || '').trim();
@@ -937,14 +944,23 @@ async function fetchWeather(location) {
   const geoUrl =
     'https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&format=json&name=' +
     encodeURIComponent(q);
-  const geoResp = await fetch(geoUrl);
-  if (!geoResp.ok) throw new Error(`geocoding HTTP ${geoResp.status}`);
-  const geo = await geoResp.json();
-  let place = geo.results && geo.results[0];
+  // A geocoder outage should not take weather down with it: treat it as a
+  // miss and let Nominatim answer.
+  let place = null;
+  try {
+    const geoResp = await fetch(geoUrl, { signal: AbortSignal.timeout(WEATHER_TIMEOUT_MS) });
+    if (geoResp.ok) place = ((await geoResp.json()).results || [])[0] || null;
+  } catch {}
   if (!place) {
     // Open-Meteo only matches bare place names ("Cambridge UK" fails, so do
     // street addresses); fall back to Nominatim, which handles both.
-    const g = await geocode(q);
+    let g;
+    try {
+      g = await geocode(q);
+    } catch (err) {
+      if (/no location found/.test(err.message)) throw err;
+      throw new WeatherUnavailable(`geocoding: ${err.message}`);
+    }
     place = { latitude: g.lat, longitude: g.lng, name: g.name, country_code: '', admin1: '' };
   }
   const { latitude, longitude, name, country_code, admin1, timezone } = place;
@@ -953,7 +969,13 @@ async function fetchWeather(location) {
     `&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,precipitation` +
     `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum` +
     `&forecast_days=3&timezone=${encodeURIComponent(timezone || 'auto')}`;
-  const fcResp = await fetch(fcUrl);
+  let fcResp;
+  try {
+    fcResp = await fetch(fcUrl, { signal: AbortSignal.timeout(WEATHER_TIMEOUT_MS) });
+  } catch (err) {
+    throw new WeatherUnavailable(`forecast: ${err.message}`);
+  }
+  if (fcResp.status === 429 || fcResp.status >= 500) throw new WeatherUnavailable(`forecast HTTP ${fcResp.status}`);
   if (!fcResp.ok) throw new Error(`forecast HTTP ${fcResp.status}`);
   const data = await fcResp.json();
   return {
@@ -973,7 +995,14 @@ async function fetchWeather(location) {
 
 ipcMain.handle('weather:get', async (_e, args) => {
   const loc = (args && args.location) || '';
-  return cachedRead(`weather:${loc.toLowerCase()}`, () => fetchWeather(loc));
+  try {
+    return await cachedRead(`weather:${loc.toLowerCase()}`, () => fetchWeather(loc));
+  } catch (err) {
+    if (!(err instanceof WeatherUnavailable)) throw err;
+    // Not cached, so the next call retries once the service is back.
+    console.warn('weather unavailable:', err.message);
+    return { unavailable: true, reason: 'Weather service is down right now.' };
+  }
 });
 
 // --- Desk creature (Pico W, via the laptop message server) ---------------
