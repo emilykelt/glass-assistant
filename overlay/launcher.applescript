@@ -5,7 +5,9 @@
 set overlayDir to "/Users/emilykelt/Library/Mobile Documents/com~apple~CloudDocs/Coding/glass-claude/overlay"
 
 try
-	do shell script "cd " & quoted form of overlayDir & " && ./node_modules/electron/dist/Electron.app/Contents/MacOS/Electron . >> /tmp/glass-overlay.log 2>&1 &"
+	-- The subshell must not keep do shell script's stdout open, or the applet
+	-- never exits and later double-clicks only re-activate the stuck applet.
+	do shell script "cd " & quoted form of overlayDir & " && (./node_modules/electron/dist/Electron.app/Contents/MacOS/Electron . >> /tmp/glass-overlay.log 2>&1 < /dev/null &)"
 on error errMsg number errNum
 	display dialog "Failed to launch Glass overlay:" & return & errMsg buttons {"OK"} default button "OK" with icon stop
 end try

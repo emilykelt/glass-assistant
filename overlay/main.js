@@ -45,13 +45,61 @@ function createWindow() {
 
 let lastProgrammaticHeight = null;
 
+// macOS can order the window out (sleep, Space or display changes) while
+// Electron still reports it visible, and then show() is a no-op. Hiding first
+// forces a real re-order; the bounds check rescues a window left on a
+// display that has gone.
+function revealWindow() {
+  if (win.isMinimized()) win.restore();
+  const b = win.getBounds();
+  const onScreen = screen.getAllDisplays().some(({ workArea: a }) =>
+    b.x < a.x + a.width && b.x + b.width > a.x && b.y < a.y + a.height && b.y + b.height > a.y);
+  if (!onScreen) win.center();
+  // The all-Spaces and floating flags can be lost across sleep or display
+  // changes, stranding the window on a Space you are not on.
+  win.setAlwaysOnTop(true, 'floating');
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  win.hide();
+  win.show();
+  app.focus({ steal: true });
+  win.focus();
+  setTimeout(rescueIfOrderedOut, 500);
+}
+
+// Even the above has failed after a day or so of uptime (cause unknown), and
+// only a fresh window recovers. So ask the window server whether the reveal
+// worked and, if not, rebuild the window. The open conversation is lost, but
+// that beats an invisible window.
+async function windowOnScreen() {
+  const id = win.getMediaSourceId().split(':')[1];
+  const { stdout } = await execFileP(HELPER_BINARY, ['window-onscreen', id], { timeout: 3000 });
+  return JSON.parse(stdout).onscreen;
+}
+
+async function rescueIfOrderedOut() {
+  if (!win || win.isDestroyed() || !hasHelper()) return;
+  let ok;
+  try {
+    ok = await windowOnScreen();
+  } catch (err) {
+    console.warn('reveal: on-screen check failed:', err.message);
+    return;
+  }
+  if (ok) {
+    console.log('reveal: window on screen');
+    return;
+  }
+  console.warn(`reveal: window ordered out (visible=${win.isVisible()} bounds=${JSON.stringify(win.getBounds())}); recreating`);
+  win.destroy();
+  createWindow();
+}
+
 function toggleWindow() {
   if (!win) return;
   if (win.isVisible() && win.isFocused()) {
     win.hide();
   } else {
-    win.show();
-    win.focus();
+    revealWindow();
   }
 }
 
@@ -62,9 +110,12 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (!win) return;
-    win.show();
-    win.focus();
+    console.log('second-instance: showing window');
+    if (!win || win.isDestroyed()) {
+      createWindow();
+      return;
+    }
+    revealWindow();
   });
 }
 

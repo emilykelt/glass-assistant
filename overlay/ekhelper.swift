@@ -1,5 +1,6 @@
 import Foundation
 import EventKit
+import CoreGraphics
 
 let store = EKEventStore()
 
@@ -300,6 +301,13 @@ case "create-reminder":
   } catch {
     die("save failed: \(error)")
   }
+
+case "window-onscreen":
+  // Glass asks whether its own window is really ordered in: Electron's
+  // isVisible() can say yes while the window server says no.
+  guard let id = UInt32(args.dropFirst().first ?? "") else { die("usage: ekhelper window-onscreen <CGWindowID>") }
+  let info = CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(id)) as? [[String: Any]] ?? []
+  emit(["onscreen": (info.first?[kCGWindowIsOnscreen as String] as? Bool) ?? false])
 
 default:
   die("unknown command: \(cmd)")
